@@ -30,40 +30,6 @@ from NGramStack import NGramStack
 from math import log
 import re
 
-class NGramStack( ):
-    """
-      A stack object designed to pop and push word 
-      tokens onto an N-gram stack of fixed max-length.
-    """
-    
-    def __init__( self, order=3 ):
-        #Maximum span for N-grams in this model.
-        self.o = order 
-        #The actual stack
-        self.s     = []
-
-    def push( self, word ):
-        """ 
-           Push a word onto the stack.
-           Pop off the bottom word if the
-           stack size becomes too large.
-        """
-        self.s.append(word)
-        if len(self.s)>self.o:
-            self.s.pop(0)
-        return self.s[:]
-
-    def pop( self ):
-        self.s.pop(0)
-        return self.s[:]
-
-    def clear( self ):
-        """
-           Empty all the words from the stack.
-        """
-        self.s = []
-
-
 
 class ModKNSmoother( ):
     """
@@ -84,6 +50,8 @@ class ModKNSmoother( ):
         self.ngrams    = NGramStack(order=order)
         self.denominators = [ defaultdict(float) for i in xrange(order-1) ]
         self.numerators   = [ defaultdict(float) for i in xrange(order-1) ]
+        #Modified Kneser-Ney requires that we track the individual N_i
+        # in contrast to Kneser-Ney, which just requires the sum-total.
         self.nonZeros     = [ defaultdict(lambda: defaultdict(float)) for i in xrange(order-1) ]
         self.CoC          = [ [ 0.0 for j in xrange(4) ] for i in xrange(order) ]
         self.discounts    = [ [ 0.0 for j in xrange(3) ] for i in xrange(order-1) ]
@@ -358,6 +326,7 @@ class ModKNSmoother( ):
 
                 #This break-down takes the following form:
                 #  probs[i+1]:  The interpolated N-gram probability, p(a_z)
+                #  d:           The discount mass for a_: \Sum_i D_i*N_i
                 #  lmda:        The un-normalized 'back-off' weight, bow(a_)
                 #  probs[i]:    The next lower-order, interpolated N-gram 
                 #               probability corresponding to p(_z)
