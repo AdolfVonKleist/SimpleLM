@@ -19,6 +19,10 @@ then
     bins=1
     method="absolute"
 fi
+if [ "${2}" == "ML" ]
+then
+    method="unsmoothed"
+fi
 
 ngramsymbols < ${1} > Gtrain.syms
 farcompilestrings --symbols=Gtrain.syms --keep_symbols=1 ${1} > Gtrain.far

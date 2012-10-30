@@ -29,7 +29,7 @@ from collections import defaultdict
 from NGramStack import NGramStack
 from math import log
 import re
-
+from pprint import pprint
 
 
 class KNSmoother( ):
@@ -112,6 +112,54 @@ class KNSmoother( ):
 
         return self.discounts[order]
 
+    def kneser_ney_from_counts( self, arpa_file ):
+        """
+          Train the KN-discounting model from an ARPA format 
+          file of raw count information.  This can be generated with,
+            $ ./SimpleCount.py --train train.corpus -r > counts.arpa
+
+          In fact we only require the HIGHEST order counts.
+        """
+
+        m_ord = c_ord = 0
+
+        for line in open(arpa_file, "r"):
+            line = line.strip()
+            if line.startswith("ngram"):
+                if line.startswith("ngram 2"):
+                    self.UD = float(line.replace("ngram 2=",""))
+                m_ord = int(re.sub(r"^ngram\s+(\d+)=.*$",r"\1", line))
+
+            #We only actually care about the highest-order counts
+            # all the other stuff derives from this.
+            if c_ord==m_ord and not line=="" and not line.startswith("\\"):
+                count, ngram = line.split("\t")
+                self.numerators[m_ord-2][ngram] = float(count)
+            elif re.match(r"^\\\d+",line):
+                c_ord = int(re.sub(r"^\\(\d+).*$",r"\1", line))
+
+        for o in xrange(m_ord-3,-1,-1):
+            for key in self.numerators[o+1]:
+                ngram = key[key.find(" ")+1:]
+                self.numerators[o][ngram] += 1.0
+                ngram = key[:key.rfind(" ")]
+                self.denominators[o+1][ngram] += self.numerators[o+1][key]
+                self.nonZeros[o+1][ngram] += 1.0
+                if key.startswith(self.sb):
+                    self.numerators[o][ngram] += self.numerators[o+1][key]
+
+        for key in self.numerators[0]:
+            ngram = key[key.find(" ")+1:]
+            self.UN[ngram] += 1.0
+            ngram = key[:key.rfind(" ")]
+            self.denominators[0][ngram] += self.numerators[0][key]
+            self.nonZeros[0][ngram] += 1.0
+        self._compute_counts_of_counts ( )
+        self._compute_discounts( )
+
+        #self._print_raw_counts( )
+        return
+
     def kneser_ney_discounting( self, training_file ):
         """
           Iterate through the training data using a FIFO stack or 
@@ -147,7 +195,32 @@ class KNSmoother( ):
             self.ngrams.clear()
         self._compute_counts_of_counts ( )
         self._compute_discounts( )
+
+        #self._print_raw_counts( )
         return
+
+    def _print_raw_counts( self ):
+        """
+          Convenience function for sanity checking the history counts.
+        """
+        print "NUMERATORS:"
+        for key in sorted(self.UN.iterkeys()):
+            print " ", key, self.UN[key]
+        for o in xrange(len(self.numerators)):
+            print o
+            for key in sorted(self.numerators[o].iterkeys()):
+                print " ", key, self.numerators[o][key]
+        print "DENOMINATORS:"
+        print self.UD
+        for o in xrange(len(self.denominators)):
+            print o
+            for key in sorted(self.denominators[o].iterkeys()):
+                print " ", key, self.denominators[o][key]
+        print "NONZEROS:"
+        for o in xrange(len(self.nonZeros)):
+            print o
+            for key in sorted(self.nonZeros[o].iterkeys()):
+                print " ", key, self.nonZeros[o][key]
 
     def _kn_recurse( self, ngram_stack, i ):
         """
@@ -328,6 +401,7 @@ if __name__=="__main__":
     parser.add_argument('--order',     "-o", help="The maximum N-gram order (3).",   required=False, default=3, type=int )
     parser.add_argument('--sb',        "-b", help="The sentence-begin token (<s>).", required=False, default="<s>" )
     parser.add_argument('--se',        "-e", help="The sentence-end token (</s>).",  required=False, default="</s>" )
+    parser.add_argument('--counts',    "-c", help="The training corpus contains raw counts in ARPA format.", default=False, action="store_true" )
     parser.add_argument('--verbose', "-v", help="Verbose mode.", action="store_true", default=False )
     args = parser.parse_args()
 
@@ -335,5 +409,8 @@ if __name__=="__main__":
         for attr, value in args.__dict__.iteritems():
             print attr, "=", value
     lms = KNSmoother( order=args.order, sb=args.sb, se=args.se )
-    lms.kneser_ney_discounting( args.train )
+    if args.counts:
+        lms.kneser_ney_from_counts( args.train )
+    else:
+        lms.kneser_ney_discounting( args.train )
     lms.print_ARPA( )
