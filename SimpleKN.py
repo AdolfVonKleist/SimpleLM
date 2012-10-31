@@ -114,46 +114,43 @@ class KNSmoother( ):
 
     def kneser_ney_from_counts( self, arpa_file ):
         """
-          Train the KN-discounting model from an ARPA format 
-          file of raw count information.  This can be generated with,
+          Train the KN-discount language model from an ARPA format 
+          file containing raw count data.  This can be generated with,
             $ ./SimpleCount.py --train train.corpus -r > counts.arpa
 
-          In fact we only require the HIGHEST order counts.
         """
 
         m_ord = c_ord = 0
 
         for line in open(arpa_file, "r"):
-            line = line.strip()
-            if line.startswith("ngram"):
-                if line.startswith("ngram 2"):
-                    self.UD = float(line.replace("ngram 2=",""))
-                m_ord = int(re.sub(r"^ngram\s+(\d+)=.*$",r"\1", line))
+            ngram, count = line.strip().split("\t")
+            count = float(count)
+            ngram = ngram.split(" ")
+            if len(ngram)==2:
+                self.UD += 1.0
 
-            #We only actually care about the highest-order counts
-            # all the other stuff derives from this.
-            if c_ord==m_ord and not line=="" and not line.startswith("\\"):
-                count, ngram = line.split("\t")
-                self.numerators[m_ord-2][ngram] = float(count)
-            elif re.match(r"^\\\d+",line):
-                c_ord = int(re.sub(r"^\\(\d+).*$",r"\1", line))
+            if len(ngram)==2:
+                self.UN[" ".join(ngram[1:])] += 1.0
+                self.nonZeros[len(ngram)-2][" ".join(ngram[:-1])] += 1.0
+                if ngram[0]==self.sb:
+                    self.numerators[len(ngram)-2][" ".join(ngram)] += count
+                    self.denominators[len(ngram)-2][" ".join(ngram[:-1])] += count
 
-        for o in xrange(m_ord-3,-1,-1):
-            for key in self.numerators[o+1]:
-                ngram = key[key.find(" ")+1:]
-                self.numerators[o][ngram] += 1.0
-                ngram = key[:key.rfind(" ")]
-                self.denominators[o+1][ngram] += self.numerators[o+1][key]
-                self.nonZeros[o+1][ngram] += 1.0
-                if key.startswith(self.sb):
-                    self.numerators[o][ngram] += self.numerators[o+1][key]
+            if len(ngram)>2 and len(ngram)<self.order:
+                self.numerators[len(ngram)-3][" ".join(ngram[1:])] += 1.0
+                self.denominators[len(ngram)-3][" ".join(ngram[1:-1])] += 1.0
+                self.nonZeros[len(ngram)-2][" ".join(ngram[:-1])] += 1.0
+                if ngram[0]==self.sb:
+                    self.numerators[len(ngram)-2][" ".join(ngram)] += count
+                    self.denominators[len(ngram)-2][" ".join(ngram[:-1])] += count
 
-        for key in self.numerators[0]:
-            ngram = key[key.find(" ")+1:]
-            self.UN[ngram] += 1.0
-            ngram = key[:key.rfind(" ")]
-            self.denominators[0][ngram] += self.numerators[0][key]
-            self.nonZeros[0][ngram] += 1.0
+            if len(ngram)==self.order:
+                self.numerators[len(ngram)-3][" ".join(ngram[1:])] += 1.0
+                self.numerators[len(ngram)-2][" ".join(ngram)] = count
+                self.denominators[len(ngram)-3][" ".join(ngram[1:-1])] += 1.0
+                self.denominators[len(ngram)-2][" ".join(ngram[:-1])] += count
+                self.nonZeros[len(ngram)-2][" ".join(ngram[:-1])] += 1.0
+
         self._compute_counts_of_counts ( )
         self._compute_discounts( )
 
@@ -196,7 +193,7 @@ class KNSmoother( ):
         self._compute_counts_of_counts ( )
         self._compute_discounts( )
 
-        #self._print_raw_counts( )
+        self._print_raw_counts( )
         return
 
     def _print_raw_counts( self ):
@@ -207,18 +204,18 @@ class KNSmoother( ):
         for key in sorted(self.UN.iterkeys()):
             print " ", key, self.UN[key]
         for o in xrange(len(self.numerators)):
-            print o
+            print "ORD",o
             for key in sorted(self.numerators[o].iterkeys()):
                 print " ", key, self.numerators[o][key]
         print "DENOMINATORS:"
         print self.UD
         for o in xrange(len(self.denominators)):
-            print o
+            print "DORD", o
             for key in sorted(self.denominators[o].iterkeys()):
                 print " ", key, self.denominators[o][key]
         print "NONZEROS:"
         for o in xrange(len(self.nonZeros)):
-            print o
+            print "ZORD", o
             for key in sorted(self.nonZeros[o].iterkeys()):
                 print " ", key, self.nonZeros[o][key]
 
