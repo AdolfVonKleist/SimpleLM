@@ -129,6 +129,53 @@ class ModKNSmoother( ):
         d = sum([ self.discounts[order][i]*c[i] for i in xrange(len(c)) ])
         return d
 
+    def kneser_ney_from_counts( self, arpa_file ):
+        """
+          Train the KN-discount language model from an ARPA format 
+          file containing raw count data.  This can be generated with,
+            $ ./SimpleCount.py --train train.corpus -r > counts.arpa
+
+        """
+
+        m_ord = c_ord = 0
+
+        for line in open(arpa_file, "r"):
+            ngram, count = line.strip().split("\t")
+            count = float(count)
+            ngram = ngram.split(" ")
+            if len(ngram)==2:
+                self.UD += 1.0
+
+            if len(ngram)==2:
+                self.UN[" ".join(ngram[1:])] += 1.0
+                #Nonzeros based on suffixes
+                if ngram[0]==self.sb:
+                    self.nonZeros[len(ngram)-2][" ".join(ngram[:-1])][ngram[-1]] += count
+                    self.numerators[len(ngram)-2][" ".join(ngram)] += count
+                    self.denominators[len(ngram)-2][" ".join(ngram[:-1])] += count
+
+            if len(ngram)>2 and len(ngram)<self.order:
+                self.numerators[len(ngram)-3][" ".join(ngram[1:])] += 1.0
+                self.denominators[len(ngram)-3][" ".join(ngram[1:-1])] += 1.0
+                self.nonZeros[len(ngram)-3][" ".join(ngram[1:-1])][ngram[-1]] += 1.0
+                if ngram[0]==self.sb:
+                    self.numerators[len(ngram)-2][" ".join(ngram)] += count
+                    self.denominators[len(ngram)-2][" ".join(ngram[:-1])] += count
+                    self.nonZeros[len(ngram)-2][" ".join(ngram[:-1])][ngram[-1]] += count
+
+            if len(ngram)==self.order:
+                self.numerators[len(ngram)-3][" ".join(ngram[1:])] += 1.0
+                self.numerators[len(ngram)-2][" ".join(ngram)] = count
+                self.denominators[len(ngram)-3][" ".join(ngram[1:-1])] += 1.0
+                self.denominators[len(ngram)-2][" ".join(ngram[:-1])] += count
+                self.nonZeros[len(ngram)-3][" ".join(ngram[1:-1])][ngram[-1]] += 1.0
+                self.nonZeros[len(ngram)-2][" ".join(ngram[:-1])][ngram[-1]] += count
+
+        self._compute_counts_of_counts ( )
+        self._compute_discounts( )
+
+        #self._print_raw_counts( )
+        return
 
     def kneser_ney_discounting( self, training_file ):
         """
@@ -168,6 +215,33 @@ class ModKNSmoother( ):
         self._compute_discounts( )
 
         return
+
+
+    def print_raw_counts( self ):
+        """
+          Convenience function for sanity checking the history counts.
+        """
+        #print "NUMERATORS:"
+        #for key in sorted(self.UN.iterkeys()):
+        #    print " ", key, self.UN[key]
+        #for o in xrange(len(self.numerators)):
+        #    print "ORD",o
+        #    for key in sorted(self.numerators[o].iterkeys()):
+        #        print " ", key, self.numerators[o][key]
+        #print "DENOMINATORS:"
+        #print self.UD
+        #for o in xrange(len(self.denominators)):
+        #    print "DORD", o
+        #    for key in sorted(self.denominators[o].iterkeys()):
+        #        print " ", key, self.denominators[o][key]
+        print "NONZEROS:"
+        for o in xrange(len(self.nonZeros)):
+            print "ZORD", o
+            for denom in sorted(self.nonZeros[o].iterkeys()):
+                print " Den:", denom
+                for key in sorted(self.nonZeros[o][denom].iterkeys()):
+                    print "   ", key, self.nonZeros[o][denom][key]
+
 
     def _kn_recurse( self, ngram_stack, i ):
         """
@@ -235,7 +309,10 @@ class ModKNSmoother( ):
         print "\n\\1-grams:"
         d    = self._get_discount( 0, self.sb )
         #ModKN discount
-        lmda = d / self.denominators[0][self.sb]
+        try:
+            lmda = d / self.denominators[0][self.sb]
+        except:
+            lmda = 1e-99
         print "-99.00000\t%s\t%0.7f"   % ( self.sb, log(lmda, 10.) )
 
         for key in sorted(self.UN.iterkeys()):
@@ -245,7 +322,10 @@ class ModKNSmoother( ):
 
             d    = self._get_discount( 0, key )
             #ModKN discount
-            lmda = d / self.denominators[0][key]
+            try:
+                lmda = d / self.denominators[0][key]
+            except:
+                lmda = 1e-99
             print "%0.7f\t%s\t%0.7f" % ( log(self.UN[key]/self.UD, 10.), key, log(lmda, 10.) )
 
         #Handle the middle-order N-grams
@@ -260,7 +340,10 @@ class ModKNSmoother( ):
                 d = self._get_discount( o+1, key )
                 #Compute the back-off weight
                 #ModKN discount
-                lmda  = d / self.denominators[o+1][key]
+                try:
+                    lmda  = d / self.denominators[o+1][key]
+                except:
+                    lmda = 1e-99
                 #Compute the interpolated N-gram probability
                 prob = self._compute_interpolated_prob( key )
                 print "%0.7f\t%s\t%0.7f" % ( log(prob, 10.), key, log(lmda, 10.))
@@ -351,6 +434,7 @@ if __name__=="__main__":
     parser.add_argument('--order',    "-o", help="The maximum N-gram order (3).", required=False, default=3, type=int )
     parser.add_argument('--sb',       "-b", help="The sentence-begin token (<s>).", required=False, default="<s>" )
     parser.add_argument('--se',       "-e", help="The sentence-end token (</s>).", required=False, default="</s>" )
+    parser.add_argument('--counts',   "-c", help="The input file contains raw counts.", action="store_true", default=False )
     parser.add_argument('--verbose',  "-v", help="Verbose mode.", action="store_true", default=False )
     args = parser.parse_args()
 
@@ -358,5 +442,9 @@ if __name__=="__main__":
         for attr, value in args.__dict__.iteritems():
             print attr, "=", value
     lms = ModKNSmoother( order=args.order, sb=args.sb, se=args.se )
-    lms.kneser_ney_discounting( args.train )
+    if args.counts:
+        lms.kneser_ney_from_counts( args.train )
+    else:
+        lms.kneser_ney_discounting( args.train )
     lms.print_ARPA( )
+    #lms.print_raw_counts( )
