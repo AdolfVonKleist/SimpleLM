@@ -309,10 +309,7 @@ class ModKNSmoother( ):
         print "\n\\1-grams:"
         d    = self._get_discount( 0, self.sb )
         #ModKN discount
-        try:
-            lmda = d / self.denominators[0][self.sb]
-        except:
-            lmda = 1e-99
+        lmda = d / self.denominators[0][self.sb]
         print "-99.00000\t%s\t%0.7f"   % ( self.sb, log(lmda, 10.) )
 
         for key in sorted(self.UN.iterkeys()):
@@ -322,10 +319,7 @@ class ModKNSmoother( ):
 
             d    = self._get_discount( 0, key )
             #ModKN discount
-            try:
-                lmda = d / self.denominators[0][key]
-            except:
-                lmda = 1e-99
+            lmda = d / self.denominators[0][key]
             print "%0.7f\t%s\t%0.7f" % ( log(self.UN[key]/self.UD, 10.), key, log(lmda, 10.) )
 
         #Handle the middle-order N-grams
@@ -340,10 +334,7 @@ class ModKNSmoother( ):
                 d = self._get_discount( o+1, key )
                 #Compute the back-off weight
                 #ModKN discount
-                try:
-                    lmda  = d / self.denominators[o+1][key]
-                except:
-                    lmda = 1e-99
+                lmda  = d / self.denominators[o+1][key]
                 #Compute the interpolated N-gram probability
                 prob = self._compute_interpolated_prob( key )
                 print "%0.7f\t%s\t%0.7f" % ( log(prob, 10.), key, log(lmda, 10.))

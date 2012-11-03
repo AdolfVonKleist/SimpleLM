@@ -124,7 +124,12 @@ class KNSmoother( ):
 
         for line in open(arpa_file, "r"):
             ngram, count = line.strip().split("\t")
-            count = float(count)
+            #In this version, possibly fractional counts
+            # are simply rounded to the nearest integer.
+            #The result is a "poor-man's" fractional Kneser-Ney
+            # which actually works quite well in practice.
+            count = round(float(count))
+            if count==0.0: continue
 
             ngram = ngram.split(" ")
             if len(ngram)==2:
@@ -194,7 +199,7 @@ class KNSmoother( ):
         self._compute_counts_of_counts ( )
         self._compute_discounts( )
 
-        #self._print_raw_counts( )
+        self._print_raw_counts( )
         return
 
     def _print_raw_counts( self ):
@@ -270,6 +275,12 @@ class KNSmoother( ):
              \end\
            ----------------------------
 
+           NOTE: The try:/except: blocks are not necessary for normal 
+                 circumstances.  Neither raw text nor correct counts will
+                 fire the exception blocks.  These are needed only when 
+                 using "poor-man's" fractional Kneser-Ney, in which case
+                 the rounded counts may not agree.
+                 
         """
 
         #Handle the header info
@@ -282,7 +293,8 @@ class KNSmoother( ):
         print "\n\\1-grams:"
         d    = self.discounts[0]
         #KN discount
-        lmda = self.nonZeros[0][self.sb] * d / self.denominators[0][self.sb]
+        try:    lmda = self.nonZeros[0][self.sb] * d / self.denominators[0][self.sb]
+        except: lmda = 1e-99
         print "-99.00000\t%s\t%0.6f"   % ( self.sb, log(lmda, 10.) )
 
         for key in sorted(self.UN.iterkeys()):
@@ -292,7 +304,8 @@ class KNSmoother( ):
 
             d    = self.discounts[0]
             #KN discount
-            lmda = self.nonZeros[0][key] * d / self.denominators[0][key]
+            try:    lmda = self.nonZeros[0][key] * d / self.denominators[0][key]
+            except: lmda = 1e-99
             print "%0.6f\t%s\t%0.6f" % ( log(self.UN[key]/self.UD, 10.), key, log(lmda, 10.) )
 
         #Handle the middle-order N-grams
@@ -302,22 +315,30 @@ class KNSmoother( ):
                 if key.endswith(self.se):
                     #No back-off prob for N-grams ending in </s>
                     prob = self._compute_interpolated_prob( key )
-                    print "%0.6f\t%s" % ( log(prob, 10.), key )
+                    try:    print "%0.6f\t%s" % ( log(prob, 10.), key )
+                    except: print "%0.6f\t%s" % ( log(1e-99,10.), key )
                     continue
                 d = self.discounts[o+1]
                 #Compute the back-off weight
                 #KN discount
-                lmda = self.nonZeros[o+1][key] * d / self.denominators[o+1][key]
+                try:
+                    lmda = self.nonZeros[o+1][key] * d / self.denominators[o+1][key]
+                except:
+                    lmda = 1e-99
                 #Compute the interpolated N-gram probability
                 prob = self._compute_interpolated_prob( key )
-                print "%0.6f\t%s\t%0.6f" % ( log(prob, 10.), key, log(lmda, 10.))
+                if lmda==0.:lmda=1e-99
+                prob = max(prob,1e-99)
+                try:    print "%0.6f\t%s\t%0.6f" % ( log(prob, 10.), key, log(lmda, 10.))
+                except: raise ValueError, "ERROR %0.6f\t%0.6f"%(prob, lmda)
 
         #Handle the N-order N-grams
         print "\n\\%d-grams:" % (self.order)
         for key in sorted(self.numerators[self.order-2].iterkeys()):
             #Compute the interpolated N-gram probability
             prob = self._compute_interpolated_prob( key )
-            print "%0.6f\t%s" % ( log(prob, 10.), key )
+            try:    print "%0.6f\t%s" % ( log(prob, 10.), key )
+            except: print "%0.6f\t%s" % ( log(1e-99,10.), key )
 
         print "\n\\end\\"
         return
@@ -371,7 +392,8 @@ class KNSmoother( ):
                 if nID in self.numerators[i]:
                     #We have an actual N-gram probability for this N-gram
                     #KN discount
-                    probs[i+1] = (self.numerators[i][nID]-d)/self.denominators[i][dID]
+                    try:    probs[i+1] = (self.numerators[i][nID]-d)/self.denominators[i][dID]
+                    except: probs[i+1] = 1e-99
                 else:
                     #No actual N-gram prob, we will have to back-off
                     probs[i+1] = 1e-99
@@ -381,7 +403,8 @@ class KNSmoother( ):
                 #  probs[i]:    The next lower-order, interpolated N-gram 
                 #               probability corresponding to p(_z)
                 #KN discount
-                lmda = self.nonZeros[i][dID] * d / self.denominators[i][dID]
+                try:    lmda = self.nonZeros[i][dID] * d / self.denominators[i][dID]
+                except: lmda = 1e-99
                 probs[i+1]  = probs[i+1] + lmda * probs[i]
                 probability = probs[i+1]
 
@@ -412,6 +435,4 @@ if __name__=="__main__":
         lms.kneser_ney_from_counts( args.train )
     else:
         lms.kneser_ney_discounting( args.train )
-    if args.verbose:
-        print lms.discounts
     lms.print_ARPA( )
